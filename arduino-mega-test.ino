@@ -4,6 +4,7 @@
 #include <LiquidCrystal_I2C.h>
 #include <Adafruit_PWMServoDriver.h>
 #include <EEPROM.h>
+#include <ArduinoJson.h>
 
 #define SERVOMIN 150
 #define SERVOMAX 600
@@ -41,28 +42,35 @@ void setup()
   attachInterrupt(digitalPinToInterrupt(interruptPinBills), CurrencyAcceptor, RISING);
   detachInterrupt(digitalPinToInterrupt(interruptPinCoins));
   detachInterrupt(digitalPinToInterrupt(interruptPinBills));
+            
+                          //Json Syntax : A1 [("price"),("quantity"),("servo")] 
+  const char* itemData ="{\"A1\":[0,0,0],\"A2\":[0,0,1],\"A3\":[0,0,2],\"A4\":[0,0,3],\"A5\":[0,0,4],\"A6\":[0,0,5],\"A7\":[0,0,6],"
+                         "\"B1\":[0,0,7],\"B2\":[0,0,8],\"B3\":[0,0,9],\"B4\":[0,0,10],\"B5\":[0,0,11],\"B6\":[0,0,12],\"B7\":[0,0,13],"
+                         "\"C1\":[0,0,14],\"C2\":[0,0,15],\"C3\":[0,0,16],\"C4\":[0,0,17],\"C5\":[0,0,18],\"C6\":[0,0,19],\"C7\":[0,0,20],"
+                         "\"D1\":[0,0,21],\"D2\":[0,0,22],\"D3\":[0,0,23],\"D4\":[0,0,24],\"D5\":[2,0,25],\"D6\":[0,0,26],\"D7\":[77,7,27]}";
 
-  totalBalance = EEPROM.read(0);
-  EEPROM.write(0,0); 
-  EEPROM.get(1,arrayPrice);
-  EEPROM.put(1, arrayPrice);
-  EEPROM.get(address1,arrayQuantity);
-  EEPROM.put(address1, arrayQuantity);
-if (defaultSetup == false)
-{
-  ItemDataEntry("11", "11", 0, 10, 11);
-  ItemDataEntry("22", "22", 1, 20, 2);
-  ItemDataEntry("33", "33", 2, 30, 3);
-  ItemDataEntry("44", "44", 3, 40, 4);
-  ItemDataEntry("55", "55", 4, 50, 5);
-  ItemDataEntry("66", "66", 5, 60, 6);
-  ItemDataEntry("77", "77", 6, 70, 7);
-  ItemDataEntry("88", "88", 7, 80, 8);
-  ItemDataEntry("99", "99", 8, 90, 9);
-  ItemDataEntry("AA", "AA", 9, 100, 10);
-  ItemDataEntry("BB", "BB", 10, 110, 11);
-  defaultSetup = true;
-}
+  EEPROM.put(0, itemData);
+  const char* itemDataSAVED;
+  EEPROM.get(0, itemDataSAVED);
+  DynamicJsonDocument doc(2048);
+  DeserializationError err = deserializeJson(doc, itemDataSAVED);
+  doc["D7"][0] = 88;
+  if (err)
+  {
+    Serial.println("ERROR: ");
+    Serial.println(err.c_str());
+    return;
+  }
+
+  int ItemPrice = doc["D7"][0];
+  int ItemQuantity = doc["D7"][1];
+   int ItemServo = doc["D7"][2];
+
+  Serial.println("ITEM PRICE : "+ (String)ItemPrice);
+  Serial.println("ITEM QTY   : " + (String)ItemQuantity);
+  Serial.println("ITEM QTY   : " + (String)ItemServo);
+  Serial.println("ITEMDATA: " + (String)itemData);
+  Serial.println("ITEMDATA: " + (String)itemDataSAVED);
 
   lcd.begin(20, 4);
   lcd.init();
@@ -74,6 +82,7 @@ if (defaultSetup == false)
 }
 
 void LCD_display(){
+    
   if (totalBalance <= 0){
     lcdRow1 = "Please insert a";
     lcdRow2 = "coin to continue";
@@ -82,7 +91,9 @@ void LCD_display(){
     lcdRow2 = "> " + entryCode + " <";
   }
   lcd.setCursor(0, 0);
+  lcd.print("                ");
   lcd.print(lcdRow1);
+  lcd.print("                ");
   lcd.setCursor(0, 1);
   lcd.print(lcdRow2);
 }
@@ -109,7 +120,6 @@ void CurrencyChecker(int minCount, int maxCount, int given,String currencyType)
       totalBalance += bills;
       bills = 0;
       checkbills = 0;
-      lcd.clear();
     }
   }
   else if (currencyType == "coin"){
@@ -119,7 +129,6 @@ void CurrencyChecker(int minCount, int maxCount, int given,String currencyType)
       totalBalance += coins;
       coins = 0;
       checkcoins = 0;
-      lcd.clear();
     }
   }
 }
@@ -129,7 +138,7 @@ void Keypad_control(){
     if (key) {
       Serial.print("KEY : ");
       Serial.println(key);
-      lcd.clear();
+      //lcd.clear();
       if (entryCode.length() <= 1)
       {
         entryCode += key;
@@ -143,23 +152,15 @@ void Keypad_control(){
 void control_function_customer(){
   switch (key)
   {
-    case '1': EEPROM.get(1, arrayPrice);
-              purchase_function(arrayPrice[0]);
-              EEPROM.get(address1, arrayQuantity);
-              arrayQuantity[0] = arrayQuantity[0] - 1;
-              EEPROM.put(address1, arrayQuantity);
-              EEPROM.get(address1, arrayQuantity);
-              Serial.println((String)arrayPrice[0]);
-              Serial.println((String)arrayQuantity[0]);
+    case '1': purchase_function(15);
               servoSpin(0);
               break;
     case '2': purchase_function(25);
               servoSpin(1);
               break;
     case '3': totalBalance++;
-              EEPROM.write(0, totalBalance);
               break;
-    case '#': entryCode = ""; lcd.clear();break;
+    case '#': entryCode = "";break;
   default:
     break;
   }
@@ -170,48 +171,12 @@ void control_function_admin(){
 
   if (entryCode != "")
   {
-    ItemDataEntry(entryCode, "11", 0, 10, 1);
-    ItemDataEntry(entryCode, "22", 1, 20, 2);
-    ItemDataEntry(entryCode, "33", 2, 30, 3);
-    ItemDataEntry(entryCode, "44", 3, 40, 4);
-    ItemDataEntry(entryCode, "55", 4, 50, 5);
-    ItemDataEntry(entryCode, "66", 5, 60, 6);
-    ItemDataEntry(entryCode, "77", 6, 70, 7);
-    ItemDataEntry(entryCode, "88", 7, 80, 8);
-    ItemDataEntry(entryCode, "99", 8, 90, 9);
-    ItemDataEntry(entryCode, "AA", 9, 100, 10);
-    ItemDataEntry(entryCode, "BB", 10, 110, 11);
+
     }
     if(key == '#'){
       entryCode = "";
       key="";
       lcd.clear();
-    }
-    
-    
-}
-void ItemDataEntry(String thisEntry, String staticEntry, int arrayIndex, int price, int qty)
-{
-  bool itemValid = false;
-  String lcdRow1_admin = "", lcdRow2_admin = "";
-  if (thisEntry == staticEntry)
-  {
-    arrayPrice[arrayIndex] = price;
-    EEPROM.put(1, arrayPrice[arrayIndex]);
-    arrayQuantity[arrayIndex] = qty;
-    EEPROM.put(address1, arrayQuantity[arrayIndex]);
-    lcd.clear();
-    lcdRow1_admin = "CODE: " + (String)staticEntry;
-    lcdRow2_admin = "PHP:" + (String)EEPROM.get(1, arrayPrice[arrayIndex]) + ".00 " +
-                    "QTY:" + (String)EEPROM.get(address1, arrayQuantity[arrayIndex]);
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print(lcdRow1_admin);
-    lcd.setCursor(0, 1);
-    lcd.print(lcdRow2_admin);
-    Serial.println(lcdRow2_admin);
-    entryCode = "";
-      itemValid = true;
     }
     
     
