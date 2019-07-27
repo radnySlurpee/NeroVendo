@@ -22,16 +22,15 @@ byte colPins[COLS] = {30, 32, 34, 36}; // keypad pins
 Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
 volatile int bills = 0, checkbills = 0; const byte interruptPinBills = 2;
 volatile int coins = 0, checkcoins = 0; const byte interruptPinCoins = 3;
-int totalBalance=0;
+int totalBalance = 0;
 LiquidCrystal_I2C lcd(0x27, 20, 4);
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 String lcdRow1="", lcdRow2="";
-String entryCode = "";
-String userMode = "";
-int arrayPrice[80];
-int arrayQuantity[80];
-int address1 = sizeof(arrayPrice);
-bool defaultSetup = false;
+String entryCode = "", thisEntryCode="";
+const char *itemDataSAVED;
+bool isPurchased = false;
+bool caseRunOnce = false;
+bool isLCD_refreshed = false;
 
 void setup()
 { // initialize Serial for testing
@@ -42,19 +41,18 @@ void setup()
   attachInterrupt(digitalPinToInterrupt(interruptPinBills), CurrencyAcceptor, RISING);
   detachInterrupt(digitalPinToInterrupt(interruptPinCoins));
   detachInterrupt(digitalPinToInterrupt(interruptPinBills));
-            
+  totalBalance = 100;
                           //Json Syntax : A1 [("price"),("quantity"),("servo")] 
-  const char* itemData ="{\"A1\":[0,0,0],\"A2\":[0,0,1],\"A3\":[0,0,2],\"A4\":[0,0,3],\"A5\":[0,0,4],\"A6\":[0,0,5],\"A7\":[0,0,6],"
+  const char* itemData ="{\"A1\":[15,5,0],\"A2\":[0,0,1],\"A3\":[0,0,2],\"A4\":[0,0,3],\"A5\":[0,0,4],\"A6\":[0,0,5],\"A7\":[0,0,6],"
                          "\"B1\":[0,0,7],\"B2\":[0,0,8],\"B3\":[0,0,9],\"B4\":[0,0,10],\"B5\":[0,0,11],\"B6\":[0,0,12],\"B7\":[0,0,13],"
                          "\"C1\":[0,0,14],\"C2\":[0,0,15],\"C3\":[0,0,16],\"C4\":[0,0,17],\"C5\":[0,0,18],\"C6\":[0,0,19],\"C7\":[0,0,20],"
                          "\"D1\":[0,0,21],\"D2\":[0,0,22],\"D3\":[0,0,23],\"D4\":[0,0,24],\"D5\":[2,0,25],\"D6\":[0,0,26],\"D7\":[77,7,27]}";
 
-  EEPROM.put(0, itemData);
-  const char* itemDataSAVED;
-  EEPROM.get(0, itemDataSAVED);
+  EEPROM.put(1, itemData);
+  EEPROM.get(1, itemDataSAVED);
   DynamicJsonDocument doc(2048);
   DeserializationError err = deserializeJson(doc, itemDataSAVED);
-  doc["D7"][0] = 88;
+  
   if (err)
   {
     Serial.println("ERROR: ");
@@ -62,14 +60,10 @@ void setup()
     return;
   }
 
-  int ItemPrice = doc["D7"][0];
-  int ItemQuantity = doc["D7"][1];
-   int ItemServo = doc["D7"][2];
+  //int ItemPrice = doc["D7"][0];
+  //int ItemQuantity = doc["D7"][1];
+  //int ItemServo = doc["D7"][2];
 
-  Serial.println("ITEM PRICE : "+ (String)ItemPrice);
-  Serial.println("ITEM QTY   : " + (String)ItemQuantity);
-  Serial.println("ITEM QTY   : " + (String)ItemServo);
-  Serial.println("ITEMDATA: " + (String)itemData);
   Serial.println("ITEMDATA: " + (String)itemDataSAVED);
 
   lcd.begin(20, 4);
@@ -82,20 +76,22 @@ void setup()
 }
 
 void LCD_display(){
-    
   if (totalBalance <= 0){
     lcdRow1 = "Please insert a";
     lcdRow2 = "coin to continue";
-  }else{
+  }else if(lcdRow1 == ""){
     lcdRow1 = "PHP: " + (String)totalBalance;
-    lcdRow2 = "> " + entryCode + " <";
   }
-  lcd.setCursor(0, 0);
-  lcd.print("                ");
-  lcd.print(lcdRow1);
-  lcd.print("                ");
-  lcd.setCursor(0, 1);
-  lcd.print(lcdRow2);
+
+  if(isLCD_refreshed == true){
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(lcdRow1);
+    lcd.setCursor(0, 1);
+    lcd.print(lcdRow2);
+    isLCD_refreshed = false;
+  }
+
 }
 
 void CurrencyAcceptor()
@@ -139,8 +135,14 @@ void Keypad_control(){
       Serial.print("KEY : ");
       Serial.println(key);
       //lcd.clear();
-      if (entryCode.length() <= 1)
-      {
+      if (entryCode.length() <= 1 && (key !='#' || key !='*'))
+      {  
+        if (entryCode.length() == 2)
+        {
+          thisEntryCode = entryCode;
+          caseRunOnce = true;
+          caseSetup();
+        }
         entryCode += key;
       }
       Serial.println(entryCode);
@@ -149,17 +151,17 @@ void Keypad_control(){
     }
 }
 
-void control_function_customer(){
+//int ItemPrice = doc["D7"][0];
+//int ItemQuantity = doc["D7"][1];
+//int ItemServo = doc["D7"][2];
+
+void control_function(){
   switch (key)
   {
-    case '1': purchase_function(15);
-              servoSpin(0);
-              break;
-    case '2': purchase_function(25);
-              servoSpin(1);
-              break;
-    case '3': totalBalance++;
-              break;
+    case 'D': totalBalance++;break;
+    case '*':Serial.println("entryCode " + thisEntryCode);
+             caseRunOnce = true;
+             isPurchased = true;
     case '#': entryCode = "";break;
   default:
     break;
@@ -167,29 +169,41 @@ void control_function_customer(){
   key="";
 }
 
-void control_function_admin(){
+void caseSetup(){
 
-  if (entryCode != "")
+  if (thisEntryCode.length() == 2  && caseRunOnce == true)
   {
-
+    Serial.println("caseSetup()");
+    EEPROM.get(1, itemDataSAVED);
+    DynamicJsonDocument doc(2048);
+    deserializeJson(doc, itemDataSAVED);
+    int thisPrice = doc[thisEntryCode][0];
+    int thisServo = doc[thisEntryCode][2];
+    if (isPurchased == true)
+    {
+      purchase_function(thisPrice,thisServo);
     }
-    if(key == '#'){
-      entryCode = "";
-      key="";
-      lcd.clear();
-    }
-    
-    
+    lcdRow1 = "PHP: " + (String)totalBalance;
+    lcdRow2 = ">" + thisEntryCode + "< " + "COST: " + (String)thisPrice;
+    Serial.println("itemPrice: " + (String)thisPrice);
+    Serial.println("ItemServo:" + (String)thisServo);
+    caseRunOnce = false;
+    isPurchased = false;
+    isLCD_refreshed = true;
+  }
+  
 }
 
-void purchase_function(int cost){
+void purchase_function(int cost,int thisServo){
+  Serial.println("purchase_function("+ (String)cost + ", " + (String)thisServo + ")");
   int totalBalanceTemp = totalBalance;
   totalBalanceTemp -= cost;
   if (totalBalanceTemp >= 0){
     totalBalance = EEPROM.read(0);
     totalBalance = totalBalance - cost;
-    Serial.println("COST: "+cost);
+    Serial.println("COST: " + cost);
     EEPROM.write(0, totalBalance);
+    servoSpin(thisServo);
   }else{
     totalBalance = totalBalance;
     //LCD_display(1, 1, "Not Enough BAL");
@@ -232,17 +246,12 @@ void RunCodeInMillis()
       CurrencyChecker(8, 11, 10, "coin");
       deciSeconds2 = 0;
     }
-
     deciSeconds1++;
     deciSeconds2++;
     Keypad_control();
-    if (userMode == "ADMIN_mode")
-    { 
-      control_function_admin();
-    }else{
-      control_function_customer();
-      LCD_display();
-    }
+    control_function();
+    caseSetup();
+    LCD_display();
   }
 }
 
